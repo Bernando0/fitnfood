@@ -66,29 +66,31 @@ async def on_photo(message: Message, bot: Bot) -> None:
         context = analyze_user_context(name, SLOTS_RU[slot], earlier_desc, user.goal)
 
         result = await analyze_photo(image_b64, context)
-        if not result.get("is_food"):
-            await session.commit()  # stay silent on non-food
-            return
+        is_food = bool(result.get("is_food"))
 
-        await repo.add_meal(
-            session,
-            user_id=user.id,
-            chat_id=message.chat.id,
-            tg_message_id=message.message_id,
-            eaten_at=now,
-            meal_slot=slot,
-            dish_name=result.get("dish_name"),
-            kcal_min=result.get("kcal_min"),
-            kcal_max=result.get("kcal_max"),
-            protein_g=result.get("protein_g"),
-            fat_g=result.get("fat_g"),
-            carbs_g=result.get("carbs_g"),
-            health_score=result.get("health_score"),
-            coach_reply=result.get("coach_message"),
-        )
+        # Only real (human) food becomes a tracked meal that affects the zones.
+        if is_food:
+            await repo.add_meal(
+                session,
+                user_id=user.id,
+                chat_id=message.chat.id,
+                tg_message_id=message.message_id,
+                eaten_at=now,
+                meal_slot=slot,
+                dish_name=result.get("dish_name"),
+                kcal_min=result.get("kcal_min"),
+                kcal_max=result.get("kcal_max"),
+                protein_g=result.get("protein_g"),
+                fat_g=result.get("fat_g"),
+                carbs_g=result.get("carbs_g"),
+                health_score=result.get("health_score"),
+                coach_reply=result.get("coach_message"),
+            )
         await session.commit()
 
+    # Always react: food -> zone emoji + coach verdict; non-food -> a short roast.
     reply = result.get("coach_message")
-    if reply:
-        emoji = ZONE_EMOJI.get(result.get("health_score"), "")
-        await message.reply(f"{emoji} {reply}".strip())
+    if not reply:
+        return
+    prefix = ZONE_EMOJI.get(result.get("health_score"), "") if is_food else "🤨"
+    await message.reply(f"{prefix} {reply}".strip())
