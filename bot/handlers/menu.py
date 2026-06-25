@@ -6,13 +6,19 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, ForceReply, Message
+from aiogram.types import CallbackQuery, Message
 
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
 from bot.handlers.advice import tone_and_status
-from bot.handlers.callbacks import goal_kb, main_menu_kb, tone_kb
+from bot.handlers.callbacks import (
+    ASK_PROMPT,
+    ask_force_reply,
+    goal_kb,
+    main_menu_kb,
+    tone_kb,
+)
 from bot.llm.client import ask_coach, eat_advice
 from bot.services.status import build_stats_text
 
@@ -20,9 +26,6 @@ router = Router()
 
 MENU_TEXT = "Меню FitnFood 👇 Выбери, что нужно:"
 _GOAL_LABELS = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
-
-# The ask prompt is detected statelessly by matching a reply to this exact text.
-ASK_PROMPT = "❓ Напиши свой вопрос про еду и отправь ответом на это сообщение:"
 
 
 @router.message(Command("start", "menu"))
@@ -122,12 +125,7 @@ async def cb_ask(cb: CallbackQuery) -> None:
     if cb.message:
         # ForceReply auto-focuses the input as a reply to this prompt; we then
         # match that reply below — no FSM state to get lost.
-        await cb.message.answer(
-            ASK_PROMPT,
-            reply_markup=ForceReply(
-                selective=True, input_field_placeholder="Например: что съесть после трени?"
-            ),
-        )
+        await cb.message.answer(ASK_PROMPT, reply_markup=ask_force_reply())
 
 
 @router.message(

@@ -2,13 +2,28 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    ForceReply,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
 from bot.db import repo
 from bot.db.session import SessionLocal
 from bot.llm.prompts import TONE_LABELS
 
 router = Router()
+
+# Shared by the /ask command and the menu button. The reply to this exact text
+# is detected statelessly (see handlers/menu.py ask_reply).
+ASK_PROMPT = "❓ Напиши свой вопрос про еду и отправь ответом на это сообщение:"
+
+
+def ask_force_reply() -> ForceReply:
+    return ForceReply(
+        selective=True, input_field_placeholder="Например: что съесть после трени?"
+    )
 
 
 def meal_kb(meal_id: int) -> InlineKeyboardMarkup:

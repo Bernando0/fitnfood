@@ -11,6 +11,7 @@ from aiogram.types import Message
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.handlers.callbacks import ASK_PROMPT, ask_force_reply
 from bot.llm.client import ask_coach, eat_advice
 from bot.services.status import build_status_text
 
@@ -40,9 +41,8 @@ async def cmd_ask(message: Message, command: CommandObject) -> None:
         return
     question = (command.args or "").strip()
     if not question:
-        await message.reply(
-            "Спроси что-нибудь про еду: /ask что лучше съесть после тренировки?"
-        )
+        # No inline question -> ForceReply so the next reply is captured.
+        await message.answer(ASK_PROMPT, reply_markup=ask_force_reply())
         return
     tone, status = await tone_and_status(message.chat.id, message.from_user)
     await message.reply(await ask_coach(question, status, tone))
