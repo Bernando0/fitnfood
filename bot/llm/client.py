@@ -67,6 +67,36 @@ async def analyze_photo(image_b64: str, context_text: str) -> dict:
     return data
 
 
+async def analyze_text(description: str, context_text: str) -> dict:
+    """Text-only meal log (no photo): estimate the dish/KБЖУ from a description."""
+    user = (
+        context_text
+        + f"\n\nФОТО НЕТ. Человек написал словами, что съел: «{description}». "
+        "Оцени блюда и КБЖУ по описанию (учитывай указанные порции и способ готовки — "
+        "«средняя порция», «без масла», «двойная» и т.п.), поставь зону и верни JSON."
+    )
+    try:
+        resp = await _client.chat.completions.create(
+            model=settings.llm_model,
+            max_tokens=900,
+            temperature=0.7,
+            messages=[
+                {"role": "system", "content": ANALYZE_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("analyze_text request failed")
+        return {"is_food": False}
+
+    content = resp.choices[0].message.content or ""
+    data = _extract_json(content)
+    if data is None:
+        log.warning("could not parse analyze_text JSON: %r", content[:200])
+        return {"is_food": False}
+    return data
+
+
 async def daily_summary(report_text: str) -> str:
     """Text call: turn the day's meals into one warm group summary."""
     resp = await _client.chat.completions.create(

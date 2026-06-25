@@ -10,7 +10,7 @@ from aiogram.enums import ParseMode
 
 from bot.config import settings
 from bot.db.session import init_db
-from bot.handlers import commands, onboarding, photos
+from bot.handlers import commands, onboarding, photos, text
 from bot.scheduler.summary import setup_scheduler
 
 logging.basicConfig(
@@ -28,8 +28,9 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
-    # Order matters: commands & onboarding before the broad photo handler.
+    # Order matters: explicit commands first, then the text/photo catch-alls.
     dp.include_router(commands.router)
+    dp.include_router(text.router)
     dp.include_router(onboarding.router)
     dp.include_router(photos.router)
 
