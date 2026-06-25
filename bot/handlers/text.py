@@ -1,24 +1,22 @@
-"""Text-based meal logging: '/ate <что съел>' anywhere, or plain text in a DM.
+"""Text-based meal logging via the explicit /ate command.
 
-For when someone forgot to photograph the meal. Shares the same analysis,
-zoning and storage as photo meals.
+The bot stays silent on ordinary chat: it only reacts to commands and photos.
+For when a photo was forgotten, /ate <description> logs a meal from words.
 """
 from __future__ import annotations
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from aiogram import F, Router
-from aiogram.enums import ChatType
+from aiogram import Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
-from bot.handlers.advice import tone_and_status
 from bot.handlers.callbacks import meal_kb
-from bot.llm.client import analyze_text, ask_coach
+from bot.llm.client import analyze_text
 from bot.llm.prompts import analyze_user_context
 from bot.services.meal_slot import SLOTS_RU, meal_slot
 from bot.services.zones import ZONE_EMOJI
@@ -26,19 +24,18 @@ from bot.services.zones import ZONE_EMOJI
 router = Router()
 
 _HINT = (
-    "Опиши, что съел — например: «на обед борщ с хлебом, средняя порция» "
-    "или /ate овсянка с омлетом и творогом, средняя порция."
+    "Опиши, что съел: /ate овсянка с омлетом и творогом, средняя порция. "
+    "А ещё можно просто кинуть фото еды 📷"
 )
 
 
-async def _log_meal_text(
-    message: Message, description: str | None, *, answer_if_not_food: bool = False
-) -> None:
+@router.message(Command("ate", "eat_text", "съел", "ел", "еда"))
+async def cmd_ate(message: Message, command: CommandObject) -> None:
     if settings.allowed_chat_id and message.chat.id != settings.allowed_chat_id:
         return
     if message.from_user is None:
         return
-    description = (description or "").strip()
+    description = (command.args or "").strip()
     if not description:
         await message.reply(_HINT)
         return
@@ -94,27 +91,10 @@ async def _log_meal_text(
         await session.commit()
 
     if not is_food:
-        # Not a meal report. In a DM treat it as a question and answer it;
-        # for the /ate command just nudge with the usage hint.
-        if answer_if_not_food:
-            tone, status = await tone_and_status(message.chat.id, message.from_user)
-            await message.reply(await ask_coach(description, status, tone))
-        else:
-            await message.reply(_HINT)
+        await message.reply("Это не похоже на еду. " + _HINT)
         return
     reply = result.get("coach_message")
     if reply:
         prefix = ZONE_EMOJI.get(result.get("health_score"), "")
         keyboard = meal_kb(meal_id) if meal_id else None
         await message.reply(f"{prefix} {reply}".strip(), reply_markup=keyboard)
-
-
-@router.message(Command("ate", "eat", "съел", "ел", "еда"))
-async def cmd_ate(message: Message, command: CommandObject) -> None:
-    await _log_meal_text(message, command.args)
-
-
-@router.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith("/"))
-async def private_text_meal(message: Message) -> None:
-    # In a 1:1 chat: a meal report is logged; a question/chat is answered.
-    await _log_meal_text(message, message.text, answer_if_not_food=True)
