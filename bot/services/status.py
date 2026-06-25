@@ -1,0 +1,38 @@
+"""Build a short text summary of a user's status for Q&A / eat advice."""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from bot.db import repo
+from bot.db.models import User
+from bot.services.zones import ZONE_RU, day_total_kcal, day_zone
+
+_GOAL_RU = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
+
+
+async def build_status_text(session: AsyncSession, user: User, now: datetime) -> str:
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    yest_start = today_start - timedelta(days=1)
+
+    meals = await repo.meals_for_user_since(session, user_id=user.id, since=yest_start)
+    today = [m for m in meals if m.eaten_at >= today_start]
+    yest = [m for m in meals if yest_start <= m.eaten_at < today_start]
+
+    lines = [
+        f"Имя: {user.display_name or 'Участник'}.",
+        f"Цель: {_GOAL_RU.get(user.goal or '', 'не задана')}.",
+    ]
+    if today:
+        lo, hi = day_total_kcal(today)
+        items = "; ".join(f"{m.dish_name} ({m.health_score})" for m in today if m.dish_name)
+        lines.append(
+            f"Сегодня уже ел — {ZONE_RU[day_zone(today)]} зона, ~{lo}-{hi} ккал: {items}."
+        )
+    else:
+        lines.append("Сегодня ещё ничего не ел.")
+    lines.append(
+        f"Вчера день был {ZONE_RU[day_zone(yest)]}." if yest else "Вчера данных нет."
+    )
+    return "\n".join(lines)

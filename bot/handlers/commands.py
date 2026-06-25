@@ -6,11 +6,12 @@ from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.llm.prompts import TONE_LABELS, TONES
 from bot.services.zones import ZONE_EMOJI, ZONE_RU, day_total_kcal, day_zone
 
 router = Router()
@@ -22,16 +23,57 @@ HELP = (
     "• Вечером — разбор дня по всем.\n\n"
     "Команды\n"
     "/help — эта справка\n"
-    "📷 Просто кинь фото еды (можно с подписью: состав, порция).\n"
-    "✍️ Забыл сфоткать? /ate и что съел — напр. /ate овсянка с омлетом и творогом, средняя порция (в личке можно без команды).\n"
-    "/stats — твоя аналитика по дням (🟢🟡🔴⚪ за неделю)\n"
-    "/goal lose|gain|maintain — задать личную цель (снизить/набрать/держать)\n"
-    "/report — прислать сводку за сегодня прямо сейчас\n"
-    "/stop — перестать анализировать мои фото\n"
-    "/resume — снова анализировать мои фото\n"
+    "📷 Кинь фото еды (можно с подписью: состав, порция).\n"
+    "✍️ Забыл сфоткать? /ate и что съел — напр. /ate овсянка с омлетом, средняя порция (в личке можно без команды).\n"
+    "/ask <вопрос> — спросить совет (что можно/нельзя, с учётом твоей еды и цели)\n"
+    "/eat [продукты] — что лучше съесть сейчас (можно указать, что есть дома)\n"
+    "/undo — удалить последний приём (если ошибся фото)\n"
+    "/stats — аналитика по дням (🟢🟡🔴⚪ за неделю)\n"
+    "/tone — выбрать тон общения чата\n"
+    "/goal lose|gain|maintain — личная цель\n"
+    "/report — сводка за сегодня сейчас\n"
+    "/stop · /resume — выключить/включить анализ моих фото\n"
     "/delete — удалить все мои данные\n\n"
     "⚠️ Оценки приблизительные, это не медицинский совет."
 )
+
+
+@router.message(Command("tone", "режим"))
+async def cmd_tone(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip().lower()
+    if arg in TONES:
+        async with SessionLocal() as session:
+            await repo.set_group_tone(session, chat_id=message.chat.id, tone=arg)
+            await session.commit()
+        await message.reply(f"Режим общения: {TONE_LABELS[arg]}")
+        return
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=TONE_LABELS[t], callback_data=f"tone:{t}")]
+            for t in TONES
+        ]
+    )
+    await message.reply("Выбери тон общения для этого чата:", reply_markup=kb)
+
+
+@router.message(Command("undo", "отмена"))
+async def cmd_undo(message: Message) -> None:
+    if message.from_user is None:
+        return
+    async with SessionLocal() as session:
+        user = await repo.get_or_create_user(
+            session,
+            tg_user_id=message.from_user.id,
+            chat_id=message.chat.id,
+            display_name=message.from_user.full_name,
+            username=message.from_user.username,
+        )
+        name = await repo.delete_last_meal(session, user_id=user.id)
+        await session.commit()
+    if name:
+        await message.reply(f"🗑 Удалил последний приём: {name}. В аналитику не пойдёт.")
+    else:
+        await message.reply("Нечего удалять — приёмов пока нет.")
 
 
 @router.message(Command("start", "help"))

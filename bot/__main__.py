@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 
 from bot.config import settings
 from bot.db.session import init_db
-from bot.handlers import commands, onboarding, photos, text
+from bot.handlers import advice, callbacks, commands, onboarding, photos, text
 from bot.scheduler.summary import setup_scheduler
 
 logging.basicConfig(
@@ -26,7 +26,9 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dp = Dispatcher()
     # Order matters: explicit commands first, then the text/photo catch-alls.
+    dp.include_router(callbacks.router)
     dp.include_router(commands.router)
+    dp.include_router(advice.router)
     dp.include_router(text.router)
     dp.include_router(onboarding.router)
     dp.include_router(photos.router)

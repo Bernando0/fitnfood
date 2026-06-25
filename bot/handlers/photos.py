@@ -14,6 +14,7 @@ from bot.db import repo
 from bot.db.session import SessionLocal
 from bot.llm.client import analyze_photo
 from bot.llm.prompts import analyze_user_context
+from bot.handlers.callbacks import meal_kb
 from bot.services.images import to_jpeg_base64
 from bot.services.meal_slot import SLOTS_RU, meal_slot
 from bot.services.zones import ZONE_EMOJI
@@ -44,8 +45,10 @@ async def on_photo(message: Message, bot: Bot) -> None:
         log.exception("failed to decode photo")
         return
 
+    meal_id = None
     async with SessionLocal() as session:
-        await repo.get_or_create_group(session, chat_id=message.chat.id)
+        group = await repo.get_or_create_group(session, chat_id=message.chat.id)
+        tone = group.tone
         user = await repo.get_or_create_user(
             session,
             tg_user_id=tg_user.id,
@@ -67,12 +70,12 @@ async def on_photo(message: Message, bot: Bot) -> None:
             name, SLOTS_RU[slot], earlier_desc, user.goal, caption=message.caption
         )
 
-        result = await analyze_photo(image_b64, context)
+        result = await analyze_photo(image_b64, context, tone=tone)
         is_food = bool(result.get("is_food"))
 
         # Only real (human) food becomes a tracked meal that affects the zones.
         if is_food:
-            await repo.add_meal(
+            meal = await repo.add_meal(
                 session,
                 user_id=user.id,
                 chat_id=message.chat.id,
@@ -88,11 +91,13 @@ async def on_photo(message: Message, bot: Bot) -> None:
                 health_score=result.get("health_score"),
                 coach_reply=result.get("coach_message"),
             )
+            meal_id = meal.id
         await session.commit()
 
-    # Always react: food -> zone emoji + coach verdict; non-food -> a short roast.
+    # Always react: food -> zone emoji + coach verdict + delete button; non-food -> roast.
     reply = result.get("coach_message")
     if not reply:
         return
     prefix = ZONE_EMOJI.get(result.get("health_score"), "") if is_food else "🤨"
-    await message.reply(f"{prefix} {reply}".strip())
+    keyboard = meal_kb(meal_id) if meal_id else None
+    await message.reply(f"{prefix} {reply}".strip(), reply_markup=keyboard)

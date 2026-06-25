@@ -17,7 +17,15 @@ engine = create_async_engine(
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
+def _ensure_columns(conn) -> None:
+    """Lightweight migration: add columns missing from a pre-existing DB."""
+    existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(group_settings)").fetchall()}
+    if "tone" not in existing:
+        conn.exec_driver_sql("ALTER TABLE group_settings ADD COLUMN tone TEXT DEFAULT 'savage'")
+
+
 async def init_db() -> None:
-    """Create tables if they do not exist yet (good enough for the MVP)."""
+    """Create tables if needed, then apply lightweight column migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_columns)

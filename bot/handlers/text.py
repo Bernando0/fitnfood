@@ -16,6 +16,7 @@ from aiogram.types import Message
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.handlers.callbacks import meal_kb
 from bot.llm.client import analyze_text
 from bot.llm.prompts import analyze_user_context
 from bot.services.meal_slot import SLOTS_RU, meal_slot
@@ -44,8 +45,10 @@ async def _log_meal_text(message: Message, description: str | None) -> None:
     tg = message.from_user
     name = tg.full_name
 
+    meal_id = None
     async with SessionLocal() as session:
-        await repo.get_or_create_group(session, chat_id=message.chat.id)
+        group = await repo.get_or_create_group(session, chat_id=message.chat.id)
+        tone = group.tone
         user = await repo.get_or_create_user(
             session,
             tg_user_id=tg.id,
@@ -65,10 +68,10 @@ async def _log_meal_text(message: Message, description: str | None) -> None:
         ]
         context = analyze_user_context(name, SLOTS_RU[slot], earlier_desc, user.goal)
 
-        result = await analyze_text(description, context)
+        result = await analyze_text(description, context, tone=tone)
         is_food = bool(result.get("is_food"))
         if is_food:
-            await repo.add_meal(
+            meal = await repo.add_meal(
                 session,
                 user_id=user.id,
                 chat_id=message.chat.id,
@@ -84,6 +87,7 @@ async def _log_meal_text(message: Message, description: str | None) -> None:
                 health_score=result.get("health_score"),
                 coach_reply=result.get("coach_message"),
             )
+            meal_id = meal.id
         await session.commit()
 
     if not is_food:
@@ -93,7 +97,8 @@ async def _log_meal_text(message: Message, description: str | None) -> None:
     reply = result.get("coach_message")
     if reply:
         prefix = ZONE_EMOJI.get(result.get("health_score"), "")
-        await message.reply(f"{prefix} {reply}".strip())
+        keyboard = meal_kb(meal_id) if meal_id else None
+        await message.reply(f"{prefix} {reply}".strip(), reply_markup=keyboard)
 
 
 @router.message(Command("ate", "eat", "съел", "ел", "еда"))

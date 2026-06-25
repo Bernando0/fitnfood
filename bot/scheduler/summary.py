@@ -50,6 +50,8 @@ async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
     since = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with SessionLocal() as session:
+        group = await repo.get_or_create_group(session, chat_id=chat_id)
+        tone = group.tone
         users = await repo.active_users_in_chat(session, chat_id=chat_id)
         rows: list[tuple[str, str, list]] = []
         for u in users:
@@ -72,7 +74,7 @@ async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
         return
 
     try:
-        summary = await daily_summary(prompt)
+        summary = await daily_summary(prompt, tone=tone)
     except Exception:  # noqa: BLE001
         log.exception("daily_summary failed for chat %s", chat_id)
         return

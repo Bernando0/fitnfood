@@ -118,6 +118,45 @@ async def active_chat_ids(session: AsyncSession) -> list[int]:
     return [row[0] for row in res.all()]
 
 
+async def set_group_tone(session: AsyncSession, *, chat_id: int, tone: str) -> None:
+    group = await get_or_create_group(session, chat_id=chat_id)
+    group.tone = tone
+
+
+async def delete_last_meal(session: AsyncSession, *, user_id: int) -> str | None:
+    """Delete a user's most recent meal. Returns its dish name, or None."""
+    res = await session.execute(
+        select(Meal).where(Meal.user_id == user_id).order_by(Meal.id.desc()).limit(1)
+    )
+    meal = res.scalar_one_or_none()
+    if meal is None:
+        return None
+    name = meal.dish_name or "приём пищи"
+    await session.delete(meal)
+    return name
+
+
+async def delete_meal_owned(
+    session: AsyncSession, *, meal_id: int, tg_user_id: int
+) -> str | bool | None:
+    """Delete a meal by id only if tg_user_id owns it.
+
+    Returns the dish name if deleted, False if not the owner, None if not found.
+    """
+    res = await session.execute(
+        select(Meal, User).join(User, User.id == Meal.user_id).where(Meal.id == meal_id)
+    )
+    row = res.first()
+    if row is None:
+        return None
+    meal, user = row
+    if user.tg_user_id != tg_user_id:
+        return False
+    name = meal.dish_name or "приём пищи"
+    await session.delete(meal)
+    return name
+
+
 async def get_or_create_group(session: AsyncSession, *, chat_id: int) -> GroupSettings:
     res = await session.execute(select(GroupSettings).where(GroupSettings.chat_id == chat_id))
     group = res.scalar_one_or_none()

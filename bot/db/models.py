@@ -63,3 +63,5 @@ class GroupSettings(Base):
     summary_hour: Mapped[int] = mapped_column(default=22)
     timezone: Mapped[str] = mapped_column(default="Europe/Moscow")
     onboarded: Mapped[int] = mapped_column(default=0)
+    # Communication tone: savage | coach | friendly
+    tone: Mapped[str] = mapped_column(default="savage")
