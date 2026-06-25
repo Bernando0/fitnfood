@@ -6,9 +6,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, ForceReply, Message
 
 from bot.config import settings
 from bot.db import repo
@@ -23,9 +21,8 @@ router = Router()
 MENU_TEXT = "Меню FitnFood 👇 Выбери, что нужно:"
 _GOAL_LABELS = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
 
-
-class Ask(StatesGroup):
-    waiting = State()
+# The ask prompt is detected statelessly by matching a reply to this exact text.
+ASK_PROMPT = "❓ Напиши свой вопрос про еду и отправь ответом на это сообщение:"
 
 
 @router.message(Command("start", "menu"))
@@ -116,26 +113,28 @@ async def cb_set_goal(cb: CallbackQuery) -> None:
         await cb.message.answer(f"🎯 Цель: {_GOAL_LABELS[goal]}.")
 
 
-# --- tap-to-ask / tap-to-recommend-from-products (FSM) ----------------------
+# --- tap-to-ask (stateless: ForceReply + reply detection) -------------------
 
 
 @router.callback_query(F.data == "menu:ask")
-async def cb_ask(cb: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Ask.waiting)
+async def cb_ask(cb: CallbackQuery) -> None:
     await cb.answer()
     if cb.message:
-        await cb.message.answer("❓ Напиши свой вопрос про еду одним сообщением 👇\n(или /cancel)")
+        # ForceReply auto-focuses the input as a reply to this prompt; we then
+        # match that reply below — no FSM state to get lost.
+        await cb.message.answer(
+            ASK_PROMPT,
+            reply_markup=ForceReply(
+                selective=True, input_field_placeholder="Например: что съесть после трени?"
+            ),
+        )
 
 
-@router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext) -> None:
-    if await state.get_state() is not None:
-        await state.clear()
-        await message.reply("Ок, отменил.")
-
-
-@router.message(Ask.waiting, F.text, ~F.text.startswith("/"))
-async def ask_received(message: Message, state: FSMContext) -> None:
-    await state.clear()
+@router.message(
+    F.reply_to_message.text == ASK_PROMPT,
+    F.text,
+    ~F.text.startswith("/"),
+)
+async def ask_reply(message: Message) -> None:
     tone, status = await tone_and_status(message.chat.id, message.from_user)
     await message.reply(await ask_coach(message.text.strip(), status, tone))
