@@ -5,8 +5,6 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 
 from bot.config import settings
 from bot.db.session import init_db
@@ -23,10 +21,9 @@ log = logging.getLogger("fitfood")
 async def main() -> None:
     await init_db()
 
-    bot = Bot(
-        token=settings.telegram_bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    # Plain text by default: the coach's replies are free-form and may contain
+    # characters like '<' or '>' that would break HTML/Markdown parsing.
+    bot = Bot(token=settings.telegram_bot_token)
     dp = Dispatcher()
     # Order matters: explicit commands first, then the text/photo catch-alls.
     dp.include_router(commands.router)
