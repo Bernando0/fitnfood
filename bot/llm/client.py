@@ -75,8 +75,12 @@ async def analyze_text(description: str, context_text: str, tone: str = "savage"
     """Text-only meal log (no photo): estimate the dish/КБЖУ from a description."""
     user = (
         context_text
-        + f"\n\nФОТО НЕТ. Человек написал словами, что съел: «{description}». "
-        "Оцени блюда и КБЖУ по описанию (учитывай порции и способ готовки), поставь зону и верни JSON."
+        + f"\n\nФОТО НЕТ. Сообщение от человека: «{description}».\n"
+        "Если это ОТЧЁТ о том, что он СЪЕЛ/выпил — оцени блюда и КБЖУ (учитывай порции и способ "
+        "готовки), поставь зону, is_food=true.\n"
+        "Если это ВОПРОС, просьба совета или болтовня (а НЕ отчёт о съеденном) — верни "
+        "is_food=false и пустой coach_message, ничего не выдумывай.\n"
+        "Верни JSON."
     )
     return await _analyze(
         [

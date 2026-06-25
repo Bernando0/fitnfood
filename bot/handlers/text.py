@@ -16,8 +16,9 @@ from aiogram.types import Message
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.handlers.advice import tone_and_status
 from bot.handlers.callbacks import meal_kb
-from bot.llm.client import analyze_text
+from bot.llm.client import analyze_text, ask_coach
 from bot.llm.prompts import analyze_user_context
 from bot.services.meal_slot import SLOTS_RU, meal_slot
 from bot.services.zones import ZONE_EMOJI
@@ -30,7 +31,9 @@ _HINT = (
 )
 
 
-async def _log_meal_text(message: Message, description: str | None) -> None:
+async def _log_meal_text(
+    message: Message, description: str | None, *, answer_if_not_food: bool = False
+) -> None:
     if settings.allowed_chat_id and message.chat.id != settings.allowed_chat_id:
         return
     if message.from_user is None:
@@ -91,8 +94,13 @@ async def _log_meal_text(message: Message, description: str | None) -> None:
         await session.commit()
 
     if not is_food:
-        # Probably not a meal description (a greeting etc.) — nudge, don't roast.
-        await message.reply(_HINT)
+        # Not a meal report. In a DM treat it as a question and answer it;
+        # for the /ate command just nudge with the usage hint.
+        if answer_if_not_food:
+            tone, status = await tone_and_status(message.chat.id, message.from_user)
+            await message.reply(await ask_coach(description, status, tone))
+        else:
+            await message.reply(_HINT)
         return
     reply = result.get("coach_message")
     if reply:
@@ -108,5 +116,5 @@ async def cmd_ate(message: Message, command: CommandObject) -> None:
 
 @router.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith("/"))
 async def private_text_meal(message: Message) -> None:
-    # In a 1:1 chat any plain text is treated as a meal description.
-    await _log_meal_text(message, message.text)
+    # In a 1:1 chat: a meal report is logged; a question/chat is answered.
+    await _log_meal_text(message, message.text, answer_if_not_food=True)
