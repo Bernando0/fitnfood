@@ -1,8 +1,7 @@
-"""End-of-day report: one warm summary message per group."""
+"""End-of-day report: one coach's day-review per group, with per-person zones."""
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -12,59 +11,68 @@ from apscheduler.triggers.cron import CronTrigger
 
 from bot.config import settings
 from bot.db import repo
-from bot.db.models import Meal, User
 from bot.db.session import SessionLocal
 from bot.llm.client import daily_summary
+from bot.services.zones import ZONE_EMOJI, ZONE_RU, day_total_kcal, day_zone
 
 log = logging.getLogger(__name__)
 
 
-def _build_report_text(rows: list[tuple[User, Meal]]) -> str | None:
-    """Turn (user, meal) rows into the text we feed the summary model."""
-    by_user: dict[str, list[Meal]] = defaultdict(list)
-    names: dict[str, str] = {}
-    for user, meal in rows:
-        key = str(user.id)
-        names[key] = user.display_name or user.username or "Участник"
-        by_user[key].append(meal)
-
-    if not by_user:
-        return None
-
+def _build_report_text(rows: list[tuple[str, str, list]]) -> tuple[str | None, int]:
+    """rows = [(name, zone, meals)]. Returns (model_prompt, total_meal_count)."""
+    total_meals = sum(len(meals) for _, _, meals in rows)
     blocks: list[str] = []
-    for key, meals in by_user.items():
-        lines = [f"{names[key]}:"]
-        total_min = total_max = 0
+    for name, zone, meals in rows:
+        emoji = ZONE_EMOJI[zone]
+        if not meals:
+            blocks.append(f"{name}: {emoji} серая зона — за день не прислал ни одного фото еды.")
+            continue
+        lo, hi = day_total_kcal(meals)
+        lines = [f"{name}: {emoji} {ZONE_RU[zone]} зона, итог дня ~{lo}-{hi} ккал."]
         for m in meals:
-            kcal = ""
-            if m.kcal_min and m.kcal_max:
-                kcal = f" ~{m.kcal_min}-{m.kcal_max} ккал"
-                total_min += m.kcal_min
-                total_max += m.kcal_max
-            slot = m.meal_slot or ""
-            lines.append(f"  - [{slot}] {m.dish_name or 'блюдо'}{kcal}")
-        lines.append(f"  Итого за день: ~{total_min}-{total_max} ккал")
+            kcal = f" ~{m.kcal_min}-{m.kcal_max} ккал" if m.kcal_min and m.kcal_max else ""
+            lines.append(f"  - [{m.meal_slot or ''}] {m.dish_name or 'блюдо'}{kcal} ({m.health_score})")
         blocks.append("\n".join(lines))
 
-    return (
-        "Данные за день по участникам. Сделай вечернюю сводку по инструкции:\n\n"
+    if not blocks:
+        return None, 0
+    prompt = (
+        "Вечерний разбор дня по участникам (зона уже посчитана — используй её и не меняй). "
+        "Дай по каждому жёсткий, честный вердикт тренера: что налажал, что ок, что исправить "
+        "завтра. Серая зона — отдельно подколи, что человек вообще не отчитывался.\n\n"
         + "\n\n".join(blocks)
     )
+    return prompt, total_meals
 
 
 async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
     now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
     since = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    async with SessionLocal() as session:
-        rows = await repo.meals_for_chat_since(session, chat_id=chat_id, since=since)
 
-    report_text = _build_report_text(rows)
-    if report_text is None:
-        await bot.send_message(chat_id, "Сегодня ещё нет ни одного фото еды 🤷 Жду ваши приёмы пищи!")
+    async with SessionLocal() as session:
+        users = await repo.active_users_in_chat(session, chat_id=chat_id)
+        rows: list[tuple[str, str, list]] = []
+        for u in users:
+            meals = await repo.meals_for_user_since(session, user_id=u.id, since=since)
+            name = u.display_name or u.username or "Участник"
+            rows.append((name, day_zone(meals), meals))
+
+    if not rows:
+        return  # bot not active for anyone in this chat
+
+    prompt, total_meals = _build_report_text(rows)
+
+    # Nobody logged anything -> short tough nudge, don't spend tokens on the model.
+    if total_meals == 0:
+        await bot.send_message(
+            chat_id,
+            "⚪ Сегодня у всех серая зона — ни одного фото еды. "
+            "Так мы никуда не двигаемся. Завтра жду отчёты. 💪",
+        )
         return
 
     try:
-        summary = await daily_summary(report_text)
+        summary = await daily_summary(prompt)
     except Exception:  # noqa: BLE001
         log.exception("daily_summary failed for chat %s", chat_id)
         return

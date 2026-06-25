@@ -91,6 +91,28 @@ async def meals_for_chat_since(
     return [(row[0], row[1]) for row in res.all()]
 
 
+async def meals_for_user_since(
+    session: AsyncSession, *, user_id: int, since: datetime
+) -> list[Meal]:
+    res = await session.execute(
+        select(Meal)
+        .where(Meal.user_id == user_id, Meal.eaten_at >= since)
+        .order_by(Meal.eaten_at)
+    )
+    return list(res.scalars())
+
+
+async def active_users_in_chat(session: AsyncSession, *, chat_id: int) -> list[User]:
+    """All participants the bot still tracks in this chat (group members, or the
+    single user in a private chat)."""
+    res = await session.execute(
+        select(User)
+        .where(User.chat_id == chat_id, User.is_active == 1)
+        .order_by(User.id)
+    )
+    return list(res.scalars())
+
+
 async def active_chat_ids(session: AsyncSession) -> list[int]:
     res = await session.execute(select(GroupSettings.chat_id))
     return [row[0] for row in res.all()]

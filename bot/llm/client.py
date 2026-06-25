@@ -40,7 +40,7 @@ async def analyze_photo(image_b64: str, context_text: str) -> dict:
         resp = await _client.chat.completions.create(
             model=settings.llm_model,
             max_tokens=900,
-            temperature=0.4,
+            temperature=0.3,
             messages=[
                 {"role": "system", "content": ANALYZE_SYSTEM},
                 {

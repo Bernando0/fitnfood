@@ -16,6 +16,7 @@ from bot.llm.client import analyze_photo
 from bot.llm.prompts import analyze_user_context
 from bot.services.images import to_jpeg_base64
 from bot.services.meal_slot import SLOTS_RU, meal_slot
+from bot.services.zones import ZONE_EMOJI
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -89,4 +90,5 @@ async def on_photo(message: Message, bot: Bot) -> None:
 
     reply = result.get("coach_message")
     if reply:
-        await message.reply(reply)
+        emoji = ZONE_EMOJI.get(result.get("health_score"), "")
+        await message.reply(f"{emoji} {reply}".strip())

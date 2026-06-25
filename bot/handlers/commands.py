@@ -1,12 +1,17 @@
 """User-facing commands: help, opt-out, goals, on-demand report, data deletion."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from aiogram import Bot, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
+from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.services.zones import ZONE_EMOJI, ZONE_RU, day_total_kcal, day_zone
 
 router = Router()
 
@@ -18,6 +23,7 @@ HELP = (
     "• Вечером — общая сводка дня.\n\n"
     "<b>Команды</b>\n"
     "/help — эта справка\n"
+    "/stats — твоя аналитика по дням (🟢🟡🔴⚪ за неделю)\n"
     "/goal lose|gain|maintain — задать личную цель (снизить/набрать/держать)\n"
     "/report — прислать сводку за сегодня прямо сейчас\n"
     "/stop — перестать анализировать мои фото\n"
@@ -88,6 +94,50 @@ async def cmd_delete(message: Message) -> None:
         )
         await session.commit()
     await message.reply("Все твои данные удалены.")
+
+
+_DAY_LABELS = {0: "Сегодня", 1: "Вчера", 2: "Позавчера"}
+
+
+@router.message(Command("stats", "stat", "история", "итоги"))
+async def cmd_stats(message: Message) -> None:
+    """Per-day colour history for the sender over the last 7 days."""
+    if message.from_user is None:
+        return
+    name = message.from_user.full_name
+    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
+    since = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async with SessionLocal() as session:
+        user = await repo.get_or_create_user(
+            session,
+            tg_user_id=message.from_user.id,
+            chat_id=message.chat.id,
+            display_name=name,
+            username=message.from_user.username,
+        )
+        meals = await repo.meals_for_user_since(session, user_id=user.id, since=since)
+        await session.commit()
+
+    by_date: dict = {}
+    for m in meals:
+        by_date.setdefault(m.eaten_at.date(), []).append(m)
+
+    lines = [f"📊 {name}, аналитика по дням:"]
+    for i in range(7):
+        d = (now - timedelta(days=i)).date()
+        day_meals = by_date.get(d, [])
+        zone = day_zone(day_meals)
+        label = _DAY_LABELS.get(i, d.strftime("%d.%m"))
+        if day_meals:
+            lo, hi = day_total_kcal(day_meals)
+            lines.append(
+                f"{ZONE_EMOJI[zone]} {label} — {ZONE_RU[zone]} зона, "
+                f"~{lo}-{hi} ккал ({len(day_meals)} приёмов)"
+            )
+        else:
+            lines.append(f"{ZONE_EMOJI['gray']} {label} — серая зона (еды не было)")
+    await message.reply("\n".join(lines))
 
 
 @router.message(Command("report"))
