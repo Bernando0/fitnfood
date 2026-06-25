@@ -63,7 +63,9 @@ async def on_photo(message: Message, bot: Bot) -> None:
             for m in earlier
             if m.dish_name
         ]
-        context = analyze_user_context(name, SLOTS_RU[slot], earlier_desc, user.goal)
+        context = analyze_user_context(
+            name, SLOTS_RU[slot], earlier_desc, user.goal, caption=message.caption
+        )
 
         result = await analyze_photo(image_b64, context)
         is_food = bool(result.get("is_food"))
