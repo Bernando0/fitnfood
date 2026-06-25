@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_model: str = "gemma4"
 
     allowed_chat_id: int | None = None
-    tz: str = "Europe/Moscow"
+    tz: str = "Asia/Almaty"
     daily_report_hour: int = 22
     db_path: str = "data/fitfood.db"
 

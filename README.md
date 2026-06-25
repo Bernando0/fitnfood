@@ -67,7 +67,7 @@ python -m bot
 | `LLM_API_KEY` | ключ LLM | — |
 | `LLM_MODEL` | модель (vision) | `gemma4` |
 | `ALLOWED_CHAT_ID` | ограничить одной группой (пусто = любая) | пусто |
-| `TZ` | таймзона сводки | `Europe/Moscow` |
+| `TZ` | таймзона сводки | `Asia/Almaty` |
 | `DAILY_REPORT_HOUR` | час вечерней сводки (0-23) | `22` |
 | `DB_PATH` | файл SQLite | `data/fitfood.db` |
 
