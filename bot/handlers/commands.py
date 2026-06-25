@@ -1,41 +1,42 @@
-"""User-facing commands: help, opt-out, goals, on-demand report, data deletion."""
+"""User-facing commands: help, tone, goal, stats, opt-out, report, deletion."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import Message
 
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
+from bot.handlers.callbacks import goal_kb, tone_kb
 from bot.llm.prompts import TONE_LABELS, TONES
-from bot.services.zones import ZONE_EMOJI, ZONE_RU, day_total_kcal, day_zone
+from bot.services.status import build_stats_text
 
 router = Router()
 
 HELP = (
     "🍽 Что я умею\n"
-    "• Кидай фото еды — разберу: калории (примерно), зона 🟢🟡🔴 и жёсткий честный вердикт.\n"
+    "• Кидай фото еды — разберу: калории (примерно), зона 🟢🟡🔴 и честный вердикт.\n"
     "• Помню каждого отдельно и веду аналитику по дням.\n"
     "• Вечером — разбор дня по всем.\n\n"
-    "Команды\n"
-    "/help — эта справка\n"
-    "📷 Кинь фото еды (можно с подписью: состав, порция).\n"
-    "✍️ Забыл сфоткать? /ate и что съел — напр. /ate овсянка с омлетом, средняя порция (в личке можно без команды).\n"
-    "/ask <вопрос> — спросить совет (что можно/нельзя, с учётом твоей еды и цели)\n"
-    "/eat [продукты] — что лучше съесть сейчас (можно указать, что есть дома)\n"
-    "/undo — удалить последний приём (если ошибся фото)\n"
-    "/stats — аналитика по дням (🟢🟡🔴⚪ за неделю)\n"
-    "/tone — выбрать тон общения чата\n"
-    "/goal lose|gain|maintain — личная цель\n"
-    "/report — сводка за сегодня сейчас\n"
-    "/stop · /resume — выключить/включить анализ моих фото\n"
-    "/delete — удалить все мои данные\n\n"
+    "Проще всего — через /menu (кнопки). Команды:\n"
+    "/menu — меню с кнопками\n"
+    "📷 фото еды (можно с подписью: состав, порция)\n"
+    "✍️ /ate и что съел — лог текстом (в личке можно без команды)\n"
+    "/ask — спросить совет · /eat — что поесть сейчас\n"
+    "/undo — удалить последний приём (или кнопкой 🗑 под ответом)\n"
+    "/stats — аналитика по дням · /tone — тон чата · /goal — цель\n"
+    "/report — сводка сейчас · /stop · /resume · /delete\n\n"
     "⚠️ Оценки приблизительные, это не медицинский совет."
 )
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    await message.reply(HELP)
 
 
 @router.message(Command("tone", "режим"))
@@ -47,13 +48,29 @@ async def cmd_tone(message: Message, command: CommandObject) -> None:
             await session.commit()
         await message.reply(f"Режим общения: {TONE_LABELS[arg]}")
         return
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=TONE_LABELS[t], callback_data=f"tone:{t}")]
-            for t in TONES
-        ]
-    )
-    await message.reply("Выбери тон общения для этого чата:", reply_markup=kb)
+    await message.reply("⚙️ Выбери тон общения для этого чата:", reply_markup=tone_kb())
+
+
+@router.message(Command("goal"))
+async def cmd_goal(message: Message, command: CommandObject) -> None:
+    if message.from_user is None:
+        return
+    arg = (command.args or "").strip().lower()
+    if arg not in {"lose", "gain", "maintain"}:
+        await message.reply("🎯 Какая у тебя цель?", reply_markup=goal_kb())
+        return
+    async with SessionLocal() as session:
+        user = await repo.get_or_create_user(
+            session,
+            tg_user_id=message.from_user.id,
+            chat_id=message.chat.id,
+            display_name=message.from_user.full_name,
+            username=message.from_user.username,
+        )
+        user.goal = arg
+        await session.commit()
+    labels = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
+    await message.reply(f"🎯 Цель: {labels[arg]}. Учту в разборах.")
 
 
 @router.message(Command("undo", "отмена"))
@@ -76,19 +93,11 @@ async def cmd_undo(message: Message) -> None:
         await message.reply("Нечего удалять — приёмов пока нет.")
 
 
-@router.message(Command("start", "help"))
-async def cmd_help(message: Message) -> None:
-    await message.reply(HELP)
-
-
-@router.message(Command("goal"))
-async def cmd_goal(message: Message, command: CommandObject) -> None:
+@router.message(Command("stats", "stat", "история", "итоги"))
+async def cmd_stats(message: Message) -> None:
     if message.from_user is None:
         return
-    arg = (command.args or "").strip().lower()
-    if arg not in {"lose", "gain", "maintain"}:
-        await message.reply("Использование: /goal lose | gain | maintain")
-        return
+    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
     async with SessionLocal() as session:
         user = await repo.get_or_create_user(
             session,
@@ -97,10 +106,9 @@ async def cmd_goal(message: Message, command: CommandObject) -> None:
             display_name=message.from_user.full_name,
             username=message.from_user.username,
         )
-        user.goal = arg
+        text = await build_stats_text(session, user, now)
         await session.commit()
-    labels = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
-    await message.reply(f"Принято 👍 Цель: {labels[arg]}. Буду учитывать мягко, без давления.")
+    await message.reply(text)
 
 
 @router.message(Command("stop"))
@@ -137,50 +145,6 @@ async def cmd_delete(message: Message) -> None:
         )
         await session.commit()
     await message.reply("Все твои данные удалены.")
-
-
-_DAY_LABELS = {0: "Сегодня", 1: "Вчера", 2: "Позавчера"}
-
-
-@router.message(Command("stats", "stat", "история", "итоги"))
-async def cmd_stats(message: Message) -> None:
-    """Per-day colour history for the sender over the last 7 days."""
-    if message.from_user is None:
-        return
-    name = message.from_user.full_name
-    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
-    since = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
-
-    async with SessionLocal() as session:
-        user = await repo.get_or_create_user(
-            session,
-            tg_user_id=message.from_user.id,
-            chat_id=message.chat.id,
-            display_name=name,
-            username=message.from_user.username,
-        )
-        meals = await repo.meals_for_user_since(session, user_id=user.id, since=since)
-        await session.commit()
-
-    by_date: dict = {}
-    for m in meals:
-        by_date.setdefault(m.eaten_at.date(), []).append(m)
-
-    lines = [f"📊 {name}, аналитика по дням:"]
-    for i in range(7):
-        d = (now - timedelta(days=i)).date()
-        day_meals = by_date.get(d, [])
-        zone = day_zone(day_meals)
-        label = _DAY_LABELS.get(i, d.strftime("%d.%m"))
-        if day_meals:
-            lo, hi = day_total_kcal(day_meals)
-            lines.append(
-                f"{ZONE_EMOJI[zone]} {label} — {ZONE_RU[zone]} зона, "
-                f"~{lo}-{hi} ккал ({len(day_meals)} приёмов)"
-            )
-        else:
-            lines.append(f"{ZONE_EMOJI['gray']} {label} — серая зона (еды не было)")
-    await message.reply("\n".join(lines))
 
 
 @router.message(Command("report"))

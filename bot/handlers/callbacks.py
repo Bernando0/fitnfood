@@ -20,6 +20,44 @@ def meal_kb(meal_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def main_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 Мои дни", callback_data="menu:stats"),
+                InlineKeyboardButton(text="🍳 Что поесть", callback_data="menu:eat"),
+            ],
+            [
+                InlineKeyboardButton(text="❓ Спросить совет", callback_data="menu:ask"),
+                InlineKeyboardButton(text="🎯 Цель", callback_data="menu:goal"),
+            ],
+            [
+                InlineKeyboardButton(text="⚙️ Тон общения", callback_data="menu:tone"),
+                InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu:help"),
+            ],
+        ]
+    )
+
+
+def tone_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=TONE_LABELS[t], callback_data=f"tone:{t}")]
+            for t in TONE_LABELS
+        ]
+    )
+
+
+def goal_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔻 Снизить вес", callback_data="goal:lose")],
+            [InlineKeyboardButton(text="🔺 Набрать массу", callback_data="goal:gain")],
+            [InlineKeyboardButton(text="⚖️ Держать вес", callback_data="goal:maintain")],
+        ]
+    )
+
+
 @router.callback_query(F.data.startswith("del:"))
 async def on_delete_meal(cb: CallbackQuery) -> None:
     try:
