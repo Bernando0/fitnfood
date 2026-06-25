@@ -1,0 +1,21 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# data
+*.db
+*.sqlite3
+data/
+photos/
+
+# os
+.DS_Store
+Thumbs.db
+
+# internal infra notes — never publish to GitHub
+SERVER_OPS_GUIDE.md

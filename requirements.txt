@@ -1,0 +1,8 @@
+aiogram==3.15.0
+openai==1.59.6
+APScheduler==3.10.4
+SQLAlchemy==2.0.36
+aiosqlite==0.20.0
+pydantic-settings==2.6.1
+Pillow==11.0.0
+python-dotenv==1.0.1
