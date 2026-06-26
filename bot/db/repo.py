@@ -118,6 +118,21 @@ async def active_chat_ids(session: AsyncSession) -> list[int]:
     return [row[0] for row in res.all()]
 
 
+async def all_groups(session: AsyncSession) -> list[GroupSettings]:
+    res = await session.execute(select(GroupSettings))
+    return list(res.scalars())
+
+
+async def set_group_timezone(session: AsyncSession, *, chat_id: int, tz: str) -> None:
+    group = await get_or_create_group(session, chat_id=chat_id)
+    group.timezone = tz
+
+
+async def set_last_summary_date(session: AsyncSession, *, chat_id: int, date: str) -> None:
+    group = await get_or_create_group(session, chat_id=chat_id)
+    group.last_summary_date = date
+
+
 async def set_group_tone(session: AsyncSession, *, chat_id: int, tone: str) -> None:
     group = await get_or_create_group(session, chat_id=chat_id)
     group.tone = tone

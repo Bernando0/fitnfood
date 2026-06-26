@@ -18,6 +18,7 @@ from bot.handlers.callbacks import (
     goal_kb,
     main_menu_kb,
     tone_kb,
+    tz_kb,
 )
 from bot.llm.client import ask_coach, eat_advice
 from bot.services.status import build_stats_text
@@ -82,6 +83,13 @@ async def cb_tone(cb: CallbackQuery) -> None:
     await cb.answer()
     if cb.message:
         await cb.message.edit_text("⚙️ Выбери тон общения чата:", reply_markup=tone_kb())
+
+
+@router.callback_query(F.data == "menu:tz")
+async def cb_tz_menu(cb: CallbackQuery) -> None:
+    await cb.answer()
+    if cb.message:
+        await cb.message.edit_text("🕐 Выбери часовой пояс чата:", reply_markup=tz_kb())
 
 
 @router.callback_query(F.data == "menu:help")

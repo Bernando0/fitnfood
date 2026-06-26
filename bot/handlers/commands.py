@@ -11,7 +11,7 @@ from aiogram.types import Message
 from bot.config import settings
 from bot.db import repo
 from bot.db.session import SessionLocal
-from bot.handlers.callbacks import goal_kb, tone_kb
+from bot.handlers.callbacks import goal_kb, tone_kb, tz_kb
 from bot.llm.prompts import TONE_LABELS, TONES
 from bot.services.status import build_stats_text
 
@@ -29,6 +29,7 @@ HELP = (
     "/ask — спросить совет · /eat — что поесть сейчас\n"
     "/undo — удалить последний приём (или кнопкой 🗑 под ответом)\n"
     "/stats — аналитика по дням · /tone — тон чата · /goal — цель\n"
+    "/tz — часовой пояс чата (по умолчанию Алматы)\n"
     "/report — сводка сейчас · /stop · /resume · /delete\n\n"
     "⚠️ Оценки приблизительные, это не медицинский совет."
 )
@@ -71,6 +72,23 @@ async def cmd_goal(message: Message, command: CommandObject) -> None:
         await session.commit()
     labels = {"lose": "снижение веса", "gain": "набор массы", "maintain": "поддержание"}
     await message.reply(f"🎯 Цель: {labels[arg]}. Учту в разборах.")
+
+
+@router.message(Command("tz", "timezone", "зона", "часовойпояс"))
+async def cmd_tz(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip()
+    if arg:
+        try:
+            ZoneInfo(arg)
+        except Exception:  # noqa: BLE001
+            await message.reply("Не знаю такую зону. Пример: /tz Asia/Almaty")
+            return
+        async with SessionLocal() as session:
+            await repo.set_group_timezone(session, chat_id=message.chat.id, tz=arg)
+            await session.commit()
+        await message.reply(f"🕐 Часовой пояс чата: {arg}")
+        return
+    await message.reply("🕐 Выбери часовой пояс чата:", reply_markup=tz_kb())
 
 
 @router.message(Command("undo", "отмена"))

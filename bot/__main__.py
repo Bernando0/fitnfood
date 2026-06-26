@@ -21,6 +21,7 @@ BOT_COMMANDS = [
     BotCommand(command="ate", description="Записать еду текстом"),
     BotCommand(command="goal", description="Моя цель"),
     BotCommand(command="tone", description="Тон общения чата"),
+    BotCommand(command="tz", description="Часовой пояс чата"),
     BotCommand(command="undo", description="Удалить последний приём"),
     BotCommand(command="help", description="Помощь"),
 ]

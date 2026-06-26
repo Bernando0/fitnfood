@@ -1,6 +1,8 @@
 """Inline-button callbacks: delete a logged meal, switch chat tone."""
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from aiogram import F, Router
 from aiogram.types import (
     CallbackQuery,
@@ -14,6 +16,15 @@ from bot.db.session import SessionLocal
 from bot.llm.prompts import TONE_LABELS
 
 router = Router()
+
+# Common timezones offered as buttons; any IANA name also works via /tz.
+TZ_OPTIONS = [
+    ("🇰🇿 Алматы / Астана", "Asia/Almaty"),
+    ("🇷🇺 Москва", "Europe/Moscow"),
+    ("🇺🇿 Ташкент", "Asia/Tashkent"),
+    ("🇬🇪 Тбилиси", "Asia/Tbilisi"),
+    ("🇦🇪 Дубай", "Asia/Dubai"),
+]
 
 # Shared by the /ask command and the menu button. The reply to this exact text
 # is detected statelessly (see handlers/menu.py ask_reply).
@@ -48,8 +59,18 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="⚙️ Тон общения", callback_data="menu:tone"),
-                InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu:help"),
+                InlineKeyboardButton(text="🕐 Часовой пояс", callback_data="menu:tz"),
             ],
+            [InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu:help")],
+        ]
+    )
+
+
+def tz_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=f"tz:{tz}")]
+            for label, tz in TZ_OPTIONS
         ]
     )
 
@@ -105,6 +126,30 @@ async def on_delete_meal(cb: CallbackQuery) -> None:
             await cb.message.edit_text(f"🗑 Удалено: {result}. В аналитику не пойдёт.")
         except Exception:  # noqa: BLE001
             await cb.message.answer(f"🗑 Удалено: {result}.")
+
+
+@router.callback_query(F.data.startswith("tz:"))
+async def on_set_tz(cb: CallbackQuery) -> None:
+    tz = cb.data.split(":", 1)[1] if ":" in cb.data else ""
+    if cb.message is None:
+        await cb.answer()
+        return
+    try:
+        ZoneInfo(tz)
+    except Exception:  # noqa: BLE001
+        await cb.answer("Неизвестная зона")
+        return
+    async with SessionLocal() as session:
+        group = await repo.get_or_create_group(session, chat_id=cb.message.chat.id)
+        group.timezone = tz
+        hour = group.summary_hour
+        await session.commit()
+    await cb.answer("Готово ✅")
+    text = f"🕐 Часовой пояс чата: {tz}. Вечерний отчёт — в {hour:02d}:00 по нему."
+    try:
+        await cb.message.edit_text(text)
+    except Exception:  # noqa: BLE001
+        await cb.message.answer(text)
 
 
 @router.callback_query(F.data.startswith("tone:"))

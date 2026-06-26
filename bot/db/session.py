@@ -22,6 +22,12 @@ def _ensure_columns(conn) -> None:
     existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(group_settings)").fetchall()}
     if "tone" not in existing:
         conn.exec_driver_sql("ALTER TABLE group_settings ADD COLUMN tone TEXT DEFAULT 'savage'")
+    if "last_summary_date" not in existing:
+        conn.exec_driver_sql("ALTER TABLE group_settings ADD COLUMN last_summary_date TEXT")
+        # One-time fix of the old wrong default timezone (runs only on this upgrade).
+        conn.exec_driver_sql(
+            "UPDATE group_settings SET timezone='Asia/Almaty' WHERE timezone='Europe/Moscow'"
+        )
 
 
 async def init_db() -> None:

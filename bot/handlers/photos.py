@@ -30,9 +30,6 @@ async def on_photo(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
 
-    # Local (naive) "now" so day windows line up with the report timezone.
-    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
-    slot = meal_slot(now)
     tg_user = message.from_user
     name = tg_user.full_name
 
@@ -49,6 +46,9 @@ async def on_photo(message: Message, bot: Bot) -> None:
     async with SessionLocal() as session:
         group = await repo.get_or_create_group(session, chat_id=message.chat.id)
         tone = group.tone
+        # Timestamp in the chat's own timezone so day windows / reports line up.
+        now = datetime.now(ZoneInfo(group.timezone or settings.tz)).replace(tzinfo=None)
+        slot = meal_slot(now)
         user = await repo.get_or_create_user(
             session,
             tg_user_id=tg_user.id,

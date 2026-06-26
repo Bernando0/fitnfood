@@ -40,8 +40,6 @@ async def cmd_ate(message: Message, command: CommandObject) -> None:
         await message.reply(_HINT)
         return
 
-    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
-    slot = meal_slot(now)
     tg = message.from_user
     name = tg.full_name
 
@@ -49,6 +47,8 @@ async def cmd_ate(message: Message, command: CommandObject) -> None:
     async with SessionLocal() as session:
         group = await repo.get_or_create_group(session, chat_id=message.chat.id)
         tone = group.tone
+        now = datetime.now(ZoneInfo(group.timezone or settings.tz)).replace(tzinfo=None)
+        slot = meal_slot(now)
         user = await repo.get_or_create_user(
             session,
             tg_user_id=tg.id,

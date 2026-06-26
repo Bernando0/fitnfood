@@ -1,4 +1,9 @@
-"""End-of-day report: one coach's day-review per group, with per-person zones."""
+"""End-of-day report: per-chat, in each chat's own timezone.
+
+A job ticks at the top of every hour. For each chat, if the local hour has
+reached its summary_hour and we haven't sent today, we send the report. This
+uses ZoneInfo per chat (reliable) instead of relying on APScheduler's tz.
+"""
 from __future__ import annotations
 
 import logging
@@ -18,8 +23,14 @@ from bot.services.zones import ZONE_EMOJI, ZONE_RU, day_total_kcal, day_zone
 log = logging.getLogger(__name__)
 
 
+def _chat_now(tz: str) -> datetime:
+    try:
+        return datetime.now(ZoneInfo(tz)).replace(tzinfo=None)
+    except Exception:  # noqa: BLE001 — bad tz string -> fall back to default
+        return datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
+
+
 def _build_report_text(rows: list[tuple[str, str, list]]) -> tuple[str | None, int]:
-    """rows = [(name, zone, meals)]. Returns (model_prompt, total_meal_count)."""
     total_meals = sum(len(meals) for _, _, meals in rows)
     blocks: list[str] = []
     for name, zone, meals in rows:
@@ -46,12 +57,12 @@ def _build_report_text(rows: list[tuple[str, str, list]]) -> tuple[str | None, i
 
 
 async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
-    now = datetime.now(ZoneInfo(settings.tz)).replace(tzinfo=None)
-    since = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
     async with SessionLocal() as session:
         group = await repo.get_or_create_group(session, chat_id=chat_id)
+        tz = group.timezone or settings.tz
         tone = group.tone
+        now = _chat_now(tz)
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0)
         users = await repo.active_users_in_chat(session, chat_id=chat_id)
         rows: list[tuple[str, str, list]] = []
         for u in users:
@@ -60,11 +71,9 @@ async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
             rows.append((name, day_zone(meals), meals))
 
     if not rows:
-        return  # bot not active for anyone in this chat
+        return
 
     prompt, total_meals = _build_report_text(rows)
-
-    # Nobody logged anything -> short tough nudge, don't spend tokens on the model.
     if total_meals == 0:
         await bot.send_message(
             chat_id,
@@ -82,23 +91,31 @@ async def send_report_for_chat(bot: Bot, chat_id: int) -> None:
         await bot.send_message(chat_id, summary)
 
 
-async def send_all_reports(bot: Bot) -> None:
+async def tick(bot: Bot) -> None:
+    """Hourly: send each chat's report once it reaches its local summary_hour."""
     async with SessionLocal() as session:
-        chat_ids = await repo.active_chat_ids(session)
-    for chat_id in chat_ids:
+        groups = await repo.all_groups(session)
+
+    for g in groups:
         try:
-            await send_report_for_chat(bot, chat_id)
+            tz = g.timezone or settings.tz
+            local = _chat_now(tz)
+            today = local.date().isoformat()
+            target_hour = g.summary_hour if g.summary_hour is not None else settings.daily_report_hour
+            # Fire once per day, at or after the target hour (catch-up after downtime).
+            if local.hour >= target_hour and g.last_summary_date != today:
+                await send_report_for_chat(bot, g.chat_id)
+                async with SessionLocal() as s:
+                    await repo.set_last_summary_date(s, chat_id=g.chat_id, date=today)
+                    await s.commit()
         except Exception:  # noqa: BLE001
-            log.exception("failed to send report for chat %s", chat_id)
+            log.exception("report tick failed for chat %s", g.chat_id)
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler(timezone=settings.tz)
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    # Every hour at :00 — per-chat timezone is handled inside tick().
     scheduler.add_job(
-        send_all_reports,
-        CronTrigger(hour=settings.daily_report_hour, minute=0),
-        args=[bot],
-        id="daily_report",
-        replace_existing=True,
+        tick, CronTrigger(minute=0), args=[bot], id="report_tick", replace_existing=True
     )
     return scheduler

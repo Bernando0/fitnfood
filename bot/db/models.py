@@ -61,7 +61,9 @@ class GroupSettings(Base):
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     summary_hour: Mapped[int] = mapped_column(default=22)
-    timezone: Mapped[str] = mapped_column(default="Europe/Moscow")
+    timezone: Mapped[str] = mapped_column(default="Asia/Almaty")
     onboarded: Mapped[int] = mapped_column(default=0)
     # Communication tone: savage | coach | friendly
     tone: Mapped[str] = mapped_column(default="savage")
+    # ISO date (in the chat's tz) the daily report was last sent — anti double-send.
+    last_summary_date: Mapped[str | None] = mapped_column(default=None)
